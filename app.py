@@ -51,15 +51,21 @@ VALID_FRAME_COUNTS = [9, 17, 25, 33, 41, 49, 57, 65, 73, 81, 89, 97, 105, 113, 1
 
 # Two-stage resolution: must be divisible by 64
 PRESET_RESOLUTIONS = {
-    "512 × 768  (Fast)": (512, 768),
-    "576 × 1024 (Wide)": (576, 1024),
-    "768 × 1024": (768, 1024),
-    "768 × 1280 (720p Wide)": (768, 1280),
-    "768 × 1344": (768, 1344),
-    "832 × 1216": (832, 1216),
-    "1024 × 1024 (Square)": (1024, 1024),
-    "1024 × 1536 (Default)": (1024, 1536),
-    "1088 × 1920 (1080p)": (1088, 1920),
+    # ── Landscape (16:9, 3:2, etc.) ──
+    "1920 × 1088  (1080p Landscape)": (1088, 1920),
+    "1280 × 768   (720p Landscape)": (768, 1280),
+    "1536 × 1024  (3:2 Landscape)": (1024, 1536),
+    "1024 × 768   (4:3 Landscape)": (768, 1024),
+    "832 × 576    (Fast Landscape)": (576, 832),
+    # ── Portrait (9:16, 2:3, etc.) ──
+    "1088 × 1920  (1080p Portrait)": (1920, 1088),
+    "768 × 1280   (720p Portrait)": (1280, 768),
+    "1024 × 1536  (2:3 Portrait)": (1536, 1024),
+    "768 × 1024   (3:4 Portrait)": (1024, 768),
+    "576 × 832    (Fast Portrait)": (832, 576),
+    # ── Square ──
+    "1024 × 1024  (Square)": (1024, 1024),
+    "768 × 768    (Square Small)": (768, 768),
 }
 
 DEFAULT_PROMPT = (
@@ -484,7 +490,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
                             with gr.Row():
                                 resolution_preset = gr.Dropdown(
                                     choices=list(PRESET_RESOLUTIONS.keys()),
-                                    value="1024 × 1536 (Default)",
+                                    value="1280 × 768   (720p Landscape)",
                                     label="Resolution Preset",
                                     interactive=True,
                                 )
