@@ -292,7 +292,8 @@ CSS = """
 * { font-family: 'Inter', system-ui, -apple-system, sans-serif !important; }
 
 .gradio-container {
-    max-width: 1400px !important;
+    max-width: 100% !important;
+    padding: 0 24px !important;
     margin: 0 auto !important;
 }
 
