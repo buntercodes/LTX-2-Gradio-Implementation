@@ -293,26 +293,26 @@ CSS = """
 /* ── Header ────────────────────────────────────────────────── */
 #app-header {
     text-align: center;
-    padding: 28px 20px 20px;
+    padding: 32px 24px 24px;
     border-radius: 16px;
-    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
-    margin-bottom: 16px;
-    border: 1px solid rgba(255,255,255,0.06);
-    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+    background: linear-gradient(135deg, #1e1b4b, #312e81, #3730a3);
+    margin-bottom: 20px;
+    border: 1px solid rgba(139, 92, 246, 0.2);
+    box-shadow: 0 8px 32px rgba(99, 102, 241, 0.15);
 }
 #app-header h1 {
-    margin: 0 0 4px;
-    font-size: 2.1rem;
+    margin: 0 0 6px;
+    font-size: 2.2rem;
     font-weight: 700;
-    background: linear-gradient(90deg, #a78bfa, #60a5fa, #34d399);
+    background: linear-gradient(90deg, #c4b5fd, #93c5fd, #6ee7b7);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     letter-spacing: -0.5px;
 }
 #app-header p {
     margin: 0;
-    color: rgba(255,255,255,0.55);
-    font-size: 0.92rem;
+    color: rgba(255,255,255,0.65);
+    font-size: 0.95rem;
     font-weight: 400;
 }
 
@@ -322,45 +322,45 @@ CSS = """
     justify-content: center;
     gap: 10px;
     flex-wrap: wrap;
-    margin-top: 14px;
+    margin-top: 16px;
 }
 .badge {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 5px 14px;
+    padding: 6px 16px;
     border-radius: 999px;
     font-size: 0.78rem;
     font-weight: 600;
     letter-spacing: 0.2px;
 }
 .badge-purple {
-    background: rgba(167,139,250,0.15);
-    color: #a78bfa;
-    border: 1px solid rgba(167,139,250,0.25);
+    background: rgba(167,139,250,0.18);
+    color: #c4b5fd;
+    border: 1px solid rgba(167,139,250,0.3);
 }
 .badge-blue {
-    background: rgba(96,165,250,0.15);
-    color: #60a5fa;
-    border: 1px solid rgba(96,165,250,0.25);
+    background: rgba(96,165,250,0.18);
+    color: #93c5fd;
+    border: 1px solid rgba(96,165,250,0.3);
 }
 .badge-green {
-    background: rgba(52,211,153,0.15);
-    color: #34d399;
-    border: 1px solid rgba(52,211,153,0.25);
+    background: rgba(52,211,153,0.18);
+    color: #6ee7b7;
+    border: 1px solid rgba(52,211,153,0.3);
 }
 .badge-amber {
-    background: rgba(251,191,36,0.15);
-    color: #fbbf24;
-    border: 1px solid rgba(251,191,36,0.25);
+    background: rgba(251,191,36,0.18);
+    color: #fde68a;
+    border: 1px solid rgba(251,191,36,0.3);
 }
 
-/* ── Cards ─────────────────────────────────────────────────── */
-.card-panel {
-    border-radius: 14px !important;
-    border: 1px solid rgba(255,255,255,0.06) !important;
-    background: rgba(255,255,255,0.02) !important;
-    padding: 20px !important;
+/* ── Section headers ───────────────────────────────────────── */
+.section-header {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #6366f1;
+    margin-bottom: 8px;
 }
 
 /* ── Generate button ───────────────────────────────────────── */
@@ -373,12 +373,12 @@ CSS = """
     font-weight: 600 !important;
     letter-spacing: 0.3px !important;
     color: #fff !important;
-    box-shadow: 0 4px 20px rgba(99,102,241,0.35) !important;
+    box-shadow: 0 4px 20px rgba(99,102,241,0.25) !important;
     transition: all 0.25s ease !important;
     cursor: pointer !important;
 }
 #generate-btn:hover {
-    box-shadow: 0 6px 28px rgba(99,102,241,0.5) !important;
+    box-shadow: 0 6px 28px rgba(99,102,241,0.4) !important;
     transform: translateY(-1px) !important;
 }
 
@@ -391,10 +391,10 @@ CSS = """
     font-size: 1.05rem !important;
     font-weight: 600 !important;
     color: #fff !important;
-    box-shadow: 0 4px 20px rgba(16,185,129,0.3) !important;
+    box-shadow: 0 4px 20px rgba(16,185,129,0.2) !important;
 }
 #load-btn:hover {
-    box-shadow: 0 6px 28px rgba(16,185,129,0.45) !important;
+    box-shadow: 0 6px 28px rgba(16,185,129,0.35) !important;
 }
 
 /* ── Status box ────────────────────────────────────────────── */
@@ -404,18 +404,10 @@ CSS = """
     line-height: 1.6 !important;
 }
 
-/* ── Resolution selector ───────────────────────────────────── */
-.resolution-info {
-    font-size: 0.82rem;
-    color: rgba(255,255,255,0.45);
-    margin-top: 4px;
-}
-
 /* ── Video output container ────────────────────────────────── */
 #video-output {
-    border-radius: 14px !important;
+    border-radius: 12px !important;
     overflow: hidden !important;
-    border: 1px solid rgba(255,255,255,0.08) !important;
 }
 
 /* ── Tab styling ───────────────────────────────────────────── */
@@ -423,6 +415,13 @@ CSS = """
     font-weight: 600 !important;
     font-size: 0.95rem !important;
     padding: 10px 24px !important;
+}
+
+/* ── Resolution tip ────────────────────────────────────────── */
+.resolution-info {
+    font-size: 0.82rem;
+    opacity: 0.6;
+    margin-top: 4px;
 }
 """
 
@@ -443,28 +442,17 @@ HEADER_HTML = """
 def build_ui(args: argparse.Namespace) -> gr.Blocks:
     """Build the Gradio Blocks UI."""
 
+    theme = gr.themes.Soft(
+        primary_hue=gr.themes.colors.violet,
+        secondary_hue=gr.themes.colors.blue,
+        neutral_hue=gr.themes.colors.slate,
+        font=gr.themes.GoogleFont("Inter"),
+    )
+
     with gr.Blocks(
         css=CSS,
         title="LTX-2 Video Studio",
-        theme=gr.themes.Base(
-            primary_hue=gr.themes.colors.violet,
-            secondary_hue=gr.themes.colors.blue,
-            neutral_hue=gr.themes.colors.slate,
-            font=gr.themes.GoogleFont("Inter"),
-        ).set(
-            body_background_fill="*neutral_950",
-            body_background_fill_dark="*neutral_950",
-            block_background_fill="*neutral_900",
-            block_background_fill_dark="*neutral_900",
-            block_border_color="*neutral_800",
-            block_border_color_dark="*neutral_800",
-            block_label_text_color="*neutral_300",
-            block_label_text_color_dark="*neutral_300",
-            input_background_fill="*neutral_800",
-            input_background_fill_dark="*neutral_800",
-            button_primary_background_fill="*primary_600",
-            button_primary_background_fill_dark="*primary_600",
-        ),
+        theme=theme,
     ) as app:
         gr.HTML(HEADER_HTML)
 
@@ -475,7 +463,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
                     # LEFT COLUMN — Controls
                     with gr.Column(scale=5):
                         # Prompt section
-                        with gr.Group(elem_classes="card-panel"):
+                        with gr.Group(elem_classes=""):
                             gr.Markdown("### 💬 Prompt")
                             prompt = gr.Textbox(
                                 label="Video Description",
@@ -491,7 +479,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
                             )
 
                         # Video settings
-                        with gr.Group(elem_classes="card-panel"):
+                        with gr.Group(elem_classes=""):
                             gr.Markdown("### 🎥 Video Settings")
                             with gr.Row():
                                 resolution_preset = gr.Dropdown(
@@ -544,7 +532,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
                                 )
 
                         # Image conditioning
-                        with gr.Group(elem_classes="card-panel"):
+                        with gr.Group(elem_classes=""):
                             gr.Markdown("### 🖼️ Image Conditioning  *(optional)*")
                             image_input = gr.Image(
                                 label="Conditioning Image",
@@ -579,7 +567,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
 
                     # RIGHT COLUMN — Output
                     with gr.Column(scale=6):
-                        with gr.Group(elem_classes="card-panel"):
+                        with gr.Group(elem_classes=""):
                             gr.Markdown("### 🎞️ Output")
                             video_output = gr.Video(
                                 label="Generated Video",
@@ -619,7 +607,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
             with gr.Tab("⚙️ Settings", id="settings-tab"):
                 with gr.Row():
                     with gr.Column():
-                        with gr.Group(elem_classes="card-panel"):
+                        with gr.Group(elem_classes=""):
                             gr.Markdown("### 📂 Model Paths")
                             gr.Markdown(
                                 "*Point these to the local model files. All paths are required.*"
@@ -640,7 +628,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
                                 placeholder="/path/to/gemma",
                             )
 
-                        with gr.Group(elem_classes="card-panel"):
+                        with gr.Group(elem_classes=""):
                             gr.Markdown("### ⚡ Optimisation")
                             settings_quant = gr.Radio(
                                 choices=["none", "fp8-cast", "fp8-scaled-mm"],
@@ -649,7 +637,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
                                 info="FP8 reduces VRAM usage. fp8-cast works on any FP8 GPU; fp8-scaled-mm needs Hopper+.",
                             )
 
-                        with gr.Group(elem_classes="card-panel"):
+                        with gr.Group(elem_classes=""):
                             gr.Markdown("### 🔗 LoRA  *(optional)*")
                             settings_lora_path = gr.Textbox(
                                 label="LoRA Path (.safetensors)",
@@ -693,7 +681,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
 
                     # Right column — info panel
                     with gr.Column():
-                        with gr.Group(elem_classes="card-panel"):
+                        with gr.Group(elem_classes=""):
                             gr.Markdown("""### 📖 About the Distilled Pipeline
 
 The **Distilled Pipeline** is the fastest LTX-2 inference mode:
