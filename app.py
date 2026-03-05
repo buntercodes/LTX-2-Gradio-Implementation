@@ -198,6 +198,10 @@ def generate_video(
     duration_sec = num_frames / frame_rate
     progress(0.0, desc="Initialising generation…")
 
+    # Reset peak memory stats to track this specific generation
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+
     t0 = time.perf_counter()
     status_parts = [
         f"🎬 {height}×{width} · {num_frames} frames · {frame_rate} fps · ~{duration_sec:.1f}s video",
@@ -237,6 +241,11 @@ def generate_video(
 
         elapsed = time.perf_counter() - t0
         status_parts.append(f"⏱️ Generated in {elapsed:.1f}s")
+        
+        if torch.cuda.is_available():
+            peak_vram = torch.cuda.max_memory_allocated() / (1024**3)
+            status_parts.append(f"📟 Peak VRAM: {peak_vram:.2f} GB")
+
         status_parts.append(f"✅ Saved to: {output_path}")
 
         progress(1.0, desc="Done!")
