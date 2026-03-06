@@ -232,12 +232,13 @@ class BlackwellDistilledPipeline(DistilledPipeline):
 # ---------------------------------------------------------------------------
 #  GPU-Accelerated Video Encoding (NVENC)
 # ---------------------------------------------------------------------------
-def gpu_encode_video(video: Iterator[torch.Tensor], fps: int, audio: Audio, output_path: str, height: int, width: int):
+def gpu_encode_video(video: list[torch.Tensor] | Iterator[torch.Tensor], fps: int, audio: Audio, output_path: str, height: int, width: int):
     """Offloads video encoding to Blackwell's NVENC hardware."""
     # Video iterator yields [F, H, W, 3] uint8 tensors.
     
     cmd = [
-        'ffmpeg', '-y', '-f', 'rawvideo', '-vcodec', 'rawvideo',
+        '/usr/bin/ffmpeg', '-y', 
+        '-f', 'rawvideo', '-vcodec', 'rawvideo',
         '-s', f'{width}x{height}', '-pix_fmt', 'rgb24', '-r', str(fps),
         '-i', '-', # Stdin
         '-c:v', 'h264_nvenc', '-preset', 'p4', '-tune', 'hq', '-cq', '24',
@@ -260,7 +261,10 @@ def gpu_encode_video(video: Iterator[torch.Tensor], fps: int, audio: Audio, outp
             return False
         return True
     except Exception as e:
-        logger.error(f"Error during GPU encoding: {e}")
+        err_out = ""
+        if 'process' in locals() and process.stderr:
+            err_out = process.stderr.read().decode()
+        logger.error(f"Error during GPU encoding: {e}. FFmpeg stderr: {err_out}")
         return False
 
 # ---------------------------------------------------------------------------
@@ -419,12 +423,15 @@ def generate_video(
 
         progress(0.85, desc="Hardware Encoding (NVENC)…")
 
+        # Convert iterator to list so we can retry completely on failure
+        video_chunks = list(video)
+
         # Write to temp file
         output_path = str(OUTPUT_DIR / f"ltx2_{uuid.uuid4().hex[:8]}.mp4")
         
         # Try GPU-accelerated encoding
         success = gpu_encode_video(
-            video=video,
+            video=video_chunks,
             fps=int(frame_rate),
             audio=audio,
             output_path=output_path,
@@ -436,7 +443,7 @@ def generate_video(
             logger.info("Falling back to CPU encoding (NVENC failed or unavailable)")
             from ltx_pipelines.utils.media_io import encode_video
             encode_video(
-                video=video,
+                video=iter(video_chunks),
                 fps=int(frame_rate),
                 audio=audio,
                 output_path=output_path,
@@ -470,8 +477,10 @@ def load_pipeline_from_settings(
     quantization: str,
     lora_path: str,
     lora_strength: float,
+    progress: gr.Progress = gr.Progress(),
 ) -> str:
     """Load the pipeline with the given settings. Returns a status string."""
+    progress(0.1, desc="Validating model paths…")
     # Validate paths
     if not checkpoint or not Path(checkpoint).is_file():
         return "❌ Distilled checkpoint path is invalid or file not found."
@@ -481,6 +490,7 @@ def load_pipeline_from_settings(
         return "❌ Gemma root path is invalid or directory not found."
 
     try:
+        progress(0.3, desc="Loading Distilled Pipeline (this may take a minute)…")
         _build_pipeline(
             checkpoint=checkpoint,
             upsampler=upsampler,
@@ -489,6 +499,7 @@ def load_pipeline_from_settings(
             lora_path=lora_path or "",
             lora_strength=lora_strength,
         )
+        progress(1.0, desc="Done!")
         return "✅ Pipeline loaded successfully! Switch to the Generate tab."
     except Exception as e:
         logger.exception("Failed to load pipeline")
