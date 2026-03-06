@@ -229,43 +229,7 @@ class BlackwellDistilledPipeline(DistilledPipeline):
         )
         return decoded_video, decoded_audio
 
-# ---------------------------------------------------------------------------
-#  GPU-Accelerated Video Encoding (NVENC)
-# ---------------------------------------------------------------------------
-def gpu_encode_video(video: list[torch.Tensor] | Iterator[torch.Tensor], fps: int, audio: Audio, output_path: str, height: int, width: int):
-    """Offloads video encoding to Blackwell's NVENC hardware."""
-    # Video iterator yields [F, H, W, 3] uint8 tensors.
-    
-    cmd = [
-        '/usr/bin/ffmpeg', '-y', 
-        '-f', 'rawvideo', '-vcodec', 'rawvideo',
-        '-s', f'{width}x{height}', '-pix_fmt', 'rgb24', '-r', str(fps),
-        '-i', '-', # Stdin
-        '-c:v', 'h264_nvenc', '-preset', 'p4', '-tune', 'hq', '-cq', '24',
-        '-pix_fmt', 'yuv420p', output_path
-    ]
-    
-    try:
-        process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-        for video_chunk in video:
-            # video_chunk is [F, H, W, 3] uint8.
-            # Convert to CPU and write bytes directly.
-            process.stdin.write(video_chunk.cpu().numpy().tobytes())
-                
-        process.stdin.close()
-        process.wait()
-        
-        if process.returncode != 0:
-            err = process.stderr.read().decode()
-            logger.error(f"NVENC failed: {err}")
-            return False
-        return True
-    except Exception as e:
-        err_out = ""
-        if 'process' in locals() and process.stderr:
-            err_out = process.stderr.read().decode()
-        logger.error(f"Error during GPU encoding: {e}. FFmpeg stderr: {err_out}")
-        return False
+
 
 # ---------------------------------------------------------------------------
 #  Global pipeline holder
@@ -421,34 +385,18 @@ def generate_video(
                 enhance_prompt=enhance_prompt,
             )
 
-        progress(0.85, desc="Hardware Encoding (NVENC)…")
+        progress(0.85, desc="Encoding Video…")
 
-        # Convert iterator to list so we can retry completely on failure
-        video_chunks = list(video)
-
-        # Write to temp file
         output_path = str(OUTPUT_DIR / f"ltx2_{uuid.uuid4().hex[:8]}.mp4")
         
-        # Try GPU-accelerated encoding
-        success = gpu_encode_video(
-            video=video_chunks,
+        from ltx_pipelines.utils.media_io import encode_video
+        encode_video(
+            video=video,
             fps=int(frame_rate),
             audio=audio,
             output_path=output_path,
-            height=height,
-            width=width
+            video_chunks_number=video_chunks_number,
         )
-        
-        if not success:
-            logger.info("Falling back to CPU encoding (NVENC failed or unavailable)")
-            from ltx_pipelines.utils.media_io import encode_video
-            encode_video(
-                video=iter(video_chunks),
-                fps=int(frame_rate),
-                audio=audio,
-                output_path=output_path,
-                video_chunks_number=video_chunks_number,
-            )
 
         elapsed = time.perf_counter() - t0
         status_parts.append(f"⏱️ Done in {elapsed:.1f}s | Blackwell Optimized")
