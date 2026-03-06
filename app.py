@@ -37,6 +37,13 @@ from ltx_pipelines.utils.args import ImageConditioningInput
 from ltx_pipelines.utils.constants import DEFAULT_IMAGE_CRF, DEFAULT_NEGATIVE_PROMPT
 from ltx_pipelines.utils.media_io import encode_video
 
+# Blackwell Optimizations Imports
+import subprocess
+from threading import Semaphore
+from collections.abc import Iterator
+from ltx_core.types import LatentState, Audio
+from ltx_core.components.protocols import DiffusionStepProtocol
+
 # ---------------------------------------------------------------------------
 #  Constants
 # ---------------------------------------------------------------------------
@@ -45,6 +52,13 @@ logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = Path(tempfile.gettempdir()) / "ltx2_outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------------------------------------------------
+#  Blackwell Concurrency & Performance Config
+# ---------------------------------------------------------------------------
+MAX_CONCURRENT_GENS = 4   # 96GB VRAM can handle ~4-6 parallel 1080p sessions
+MAX_CPU_TASKS = 2        # Guard for 6 vCPUs (Text encoding/IO)
+CPU_LOCK = Semaphore(MAX_CPU_TASKS)
 
 # Frame counts must satisfy  num_frames = 8k + 1
 VALID_FRAME_COUNTS = [9, 17, 25, 33, 41, 49, 57, 65, 73, 81, 89, 97, 105, 113, 121, 129, 137, 145, 153, 161, 169, 177, 185, 193, 201, 209, 217, 225, 233, 241, 249, 257]
@@ -76,9 +90,183 @@ DEFAULT_PROMPT = (
 )
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+#  Blackwell Performance Override
+# ---------------------------------------------------------------------------
+class BlackwellDistilledPipeline(DistilledPipeline):
+    """
+    Subclass to keep models resident in 96GB VRAM and avoid synchronization/cleanup overhead.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._transformer = None
+        self._video_encoder = None
+        self._upsampler = None
+        self._vae_decoder = None
+        self._audio_decoder = None
+        self._vocoder = None
+
+    def __call__(
+        self,
+        prompt: str,
+        seed: int,
+        height: int,
+        width: int,
+        num_frames: int,
+        frame_rate: float,
+        images: list[ImageConditioningInput],
+        tiling_config: TilingConfig | None = None,
+        enhance_prompt: bool = False,
+    ) -> tuple[Iterator[torch.Tensor], Audio]:
+        # Implementation optimized for persistent models in VRAM
+        from ltx_pipelines.utils.helpers import (
+            assert_resolution,
+            combined_image_conditionings,
+            denoise_audio_video,
+            encode_prompts,
+            simple_denoising_func,
+        )
+        from ltx_pipelines.utils.samplers import euler_denoising_loop
+        from ltx_core.components.diffusion_steps import EulerDiffusionStep
+        from ltx_core.components.noisers import GaussianNoiser
+        from ltx_pipelines.utils.constants import DISTILLED_SIGMA_VALUES, STAGE_2_DISTILLED_SIGMA_VALUES
+        from ltx_core.types import VideoPixelShape
+        from ltx_core.model.upsampler import upsample_video
+        from ltx_core.model.video_vae import decode_video as vae_decode_video
+        from ltx_core.model.audio_vae import decode_audio as vae_decode_audio
+        
+        assert_resolution(height=height, width=width, is_two_stage=True)
+        generator = torch.Generator(device=self.device).manual_seed(seed)
+        noiser = GaussianNoiser(generator=generator)
+        stepper = EulerDiffusionStep()
+        dtype = torch.bfloat16
+
+        (ctx_p,) = encode_prompts(
+            [prompt],
+            self.model_ledger,
+            enhance_first_prompt=enhance_prompt,
+            enhance_prompt_image=images[0].path if len(images) > 0 else None,
+        )
+        video_context, audio_context = ctx_p.video_encoding, ctx_p.audio_encoding
+
+        # Cache models in the pipeline instance
+        if self._video_encoder is None:
+            self._video_encoder = self.model_ledger.video_encoder()
+        if self._transformer is None:
+            self._transformer = self.model_ledger.transformer()
+            
+        video_encoder = self._video_encoder
+        transformer = self._transformer
+        
+        stage_1_sigmas = torch.Tensor(DISTILLED_SIGMA_VALUES).to(self.device)
+
+        def denoising_loop(
+            sigmas: torch.Tensor, video_state: LatentState, audio_state: LatentState, stepper: DiffusionStepProtocol
+        ) -> tuple[LatentState, LatentState]:
+            return euler_denoising_loop(
+                sigmas=sigmas,
+                video_state=video_state,
+                audio_state=audio_state,
+                stepper=stepper,
+                denoise_fn=simple_denoising_func(
+                    video_context=video_context,
+                    audio_context=audio_context,
+                    transformer=transformer,
+                ),
+            )
+
+        stage_1_output_shape = VideoPixelShape(
+            batch=1, frames=num_frames, width=width // 2, height=height // 2, fps=frame_rate,
+        )
+        stage_1_conditionings = combined_image_conditionings(
+            images=images, height=stage_1_output_shape.height, width=stage_1_output_shape.width,
+            video_encoder=video_encoder, dtype=dtype, device=self.device,
+        )
+
+        video_state, audio_state = denoise_audio_video(
+            output_shape=stage_1_output_shape, conditionings=stage_1_conditionings,
+            noiser=noiser, sigmas=stage_1_sigmas, stepper=stepper, denoising_loop_fn=denoising_loop,
+            components=self.pipeline_components, dtype=dtype, device=self.device,
+        )
+
+        if self._upsampler is None:
+            self._upsampler = self.model_ledger.spatial_upsampler()
+            
+        upscaled_video_latent = upsample_video(
+            latent=video_state.latent[:1], video_encoder=video_encoder, upsampler=self._upsampler
+        )
+
+        # Removed Stage 1 cleanup for Blackwell
+
+        stage_2_sigmas = torch.Tensor(STAGE_2_DISTILLED_SIGMA_VALUES).to(self.device)
+        stage_2_output_shape = VideoPixelShape(batch=1, frames=num_frames, width=width, height=height, fps=frame_rate)
+        stage_2_conditionings = combined_image_conditionings(
+            images=images, height=stage_2_output_shape.height, width=stage_2_output_shape.width,
+            video_encoder=video_encoder, dtype=dtype, device=self.device,
+        )
+        video_state, audio_state = denoise_audio_video(
+            output_shape=stage_2_output_shape, conditionings=stage_2_conditionings,
+            noiser=noiser, sigmas=stage_2_sigmas, stepper=stepper, denoising_loop_fn=denoising_loop,
+            components=self.pipeline_components, dtype=dtype, device=self.device,
+            noise_scale=stage_2_sigmas[0], initial_video_latent=upscaled_video_latent,
+            initial_audio_latent=audio_state.latent,
+        )
+
+        # Removed final cleanup for Blackwell
+
+        if self._vae_decoder is None:
+            self._vae_decoder = self.model_ledger.video_decoder()
+        if self._audio_decoder is None:
+            self._audio_decoder = self.model_ledger.audio_decoder()
+        if self._vocoder is None:
+            self._vocoder = self.model_ledger.vocoder()
+
+        decoded_video = vae_decode_video(
+            video_state.latent, self._vae_decoder, tiling_config, generator
+        )
+        decoded_audio = vae_decode_audio(
+            audio_state.latent, self._audio_decoder, self._vocoder
+        )
+        return decoded_video, decoded_audio
+
+# ---------------------------------------------------------------------------
+#  GPU-Accelerated Video Encoding (NVENC)
+# ---------------------------------------------------------------------------
+def gpu_encode_video(video: Iterator[torch.Tensor], fps: int, audio: Audio, output_path: str, height: int, width: int):
+    """Offloads video encoding to Blackwell's NVENC hardware."""
+    # Video iterator yields [F, H, W, 3] uint8 tensors.
+    
+    cmd = [
+        'ffmpeg', '-y', '-f', 'rawvideo', '-vcodec', 'rawvideo',
+        '-s', f'{width}x{height}', '-pix_fmt', 'rgb24', '-r', str(fps),
+        '-i', '-', # Stdin
+        '-c:v', 'h264_nvenc', '-preset', 'p4', '-tune', 'hq', '-cq', '24',
+        '-pix_fmt', 'yuv420p', output_path
+    ]
+    
+    try:
+        process = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        for video_chunk in video:
+            # video_chunk is [F, H, W, 3] uint8.
+            # Convert to CPU and write bytes directly.
+            process.stdin.write(video_chunk.cpu().numpy().tobytes())
+                
+        process.stdin.close()
+        process.wait()
+        
+        if process.returncode != 0:
+            err = process.stderr.read().decode()
+            logger.error(f"NVENC failed: {err}")
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Error during GPU encoding: {e}")
+        return False
+
+# ---------------------------------------------------------------------------
 #  Global pipeline holder
 # ---------------------------------------------------------------------------
-_pipeline: DistilledPipeline | None = None
+_pipeline: BlackwellDistilledPipeline | None = None
 _pipeline_config: dict = {}
 
 
@@ -89,8 +277,8 @@ def _build_pipeline(
     quantization: str = "none",
     lora_path: str = "",
     lora_strength: float = 1.0,
-) -> DistilledPipeline:
-    """Build (or reuse) the global DistilledPipeline instance."""
+) -> BlackwellDistilledPipeline:
+    """Build (or reuse) the global BlackwellDistilledPipeline instance."""
     global _pipeline, _pipeline_config
 
     config = dict(
@@ -125,7 +313,7 @@ def _build_pipeline(
             )
         )
 
-    _pipeline = DistilledPipeline(
+    _pipeline = BlackwellDistilledPipeline(
         distilled_checkpoint_path=str(Path(checkpoint).resolve()),
         spatial_upsampler_path=str(Path(upsampler).resolve()),
         gemma_root=str(Path(gemma).resolve()),
@@ -211,36 +399,52 @@ def generate_video(
         status_parts.append(f"🖼️ Image conditioning: strength={image_strength}")
 
     try:
-        progress(0.05, desc="Encoding prompt & building latents…")
-        tiling_config = TilingConfig.default()
-        video_chunks_number = get_video_chunks_number(num_frames, tiling_config)
+        progress(0.05, desc="Waiting for CPU/Gemma slot…")
+        with CPU_LOCK:
+            progress(0.1, desc="Encoding prompt & building latents…")
+            tiling_config = TilingConfig.default()
+            video_chunks_number = get_video_chunks_number(num_frames, tiling_config)
 
-        video, audio = _pipeline(
-            prompt=prompt,
-            seed=seed,
-            height=height,
-            width=width,
-            num_frames=num_frames,
-            frame_rate=frame_rate,
-            images=images,
-            tiling_config=tiling_config,
-            enhance_prompt=enhance_prompt,
-        )
+            video, audio = _pipeline(
+                prompt=prompt,
+                seed=seed,
+                height=height,
+                width=width,
+                num_frames=num_frames,
+                frame_rate=frame_rate,
+                images=images,
+                tiling_config=tiling_config,
+                enhance_prompt=enhance_prompt,
+            )
 
-        progress(0.85, desc="Encoding output video…")
+        progress(0.85, desc="Hardware Encoding (NVENC)…")
 
         # Write to temp file
         output_path = str(OUTPUT_DIR / f"ltx2_{uuid.uuid4().hex[:8]}.mp4")
-        encode_video(
+        
+        # Try GPU-accelerated encoding
+        success = gpu_encode_video(
             video=video,
             fps=int(frame_rate),
             audio=audio,
             output_path=output_path,
-            video_chunks_number=video_chunks_number,
+            height=height,
+            width=width
         )
+        
+        if not success:
+            logger.info("Falling back to CPU encoding (NVENC failed or unavailable)")
+            from ltx_pipelines.utils.media_io import encode_video
+            encode_video(
+                video=video,
+                fps=int(frame_rate),
+                audio=audio,
+                output_path=output_path,
+                video_chunks_number=video_chunks_number,
+            )
 
         elapsed = time.perf_counter() - t0
-        status_parts.append(f"⏱️ Generated in {elapsed:.1f}s")
+        status_parts.append(f"⏱️ Done in {elapsed:.1f}s | Blackwell Optimized")
         
         if torch.cuda.is_available():
             peak_vram = torch.cuda.max_memory_allocated() / (1024**3)
@@ -617,6 +821,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
                         enhance_prompt,
                     ],
                     outputs=[video_output, status_output],
+                    concurrency_limit=MAX_CONCURRENT_GENS,
                 )
 
             # ────────────────── SETTINGS TAB ──────────────────
@@ -648,7 +853,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
                             gr.Markdown("### ⚡ Optimisation")
                             settings_quant = gr.Radio(
                                 choices=["none", "fp8-cast", "fp8-scaled-mm"],
-                                value="none",
+                                value="fp8-cast",
                                 label="Quantisation Policy",
                                 info="FP8 reduces VRAM usage. fp8-cast works on any FP8 GPU; fp8-scaled-mm needs Hopper+.",
                             )
@@ -773,4 +978,5 @@ if __name__ == "__main__":
         server_port=args.port,
         share=args.share,
         show_error=True,
+        max_threads=10,
     )
