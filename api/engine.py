@@ -108,8 +108,9 @@ class BlackwellDistilledPipeline(DistilledPipeline):
         # Use no_grad to prevent gradient tracking (VRAM saver)
         # We use no_grad instead of inference_mode to avoid compatibility issues with VAE decoding
         with torch.no_grad():
-            # Clear cache before generation to reduce fragmentation
-            torch.cuda.empty_cache()
+            # Clear cache and run GC before generation
+            from ltx_pipelines.utils.helpers import cleanup_memory
+            cleanup_memory()
 
             (ctx_p,) = encode_prompts(
                 [prompt],
@@ -194,6 +195,12 @@ class BlackwellDistilledPipeline(DistilledPipeline):
             if self._vocoder is None:
                 self._vocoder = self.model_ledger.vocoder()
 
+            # CRITICAL: Run cleanup before VAE decoding
+            # In LTX-2.3, the VAE decoding is very memory intensive.
+            # We must sync and clear cache here.
+            torch.cuda.synchronize()
+            cleanup_memory()
+
             decoded_video = vae_decode_video(
                 video_state.latent, self._vae_decoder, tiling_config, generator
             )
@@ -201,8 +208,8 @@ class BlackwellDistilledPipeline(DistilledPipeline):
                 audio_state.latent, self._audio_decoder, self._vocoder
             )
             
-            # Cleanup cache after generation
-            torch.cuda.empty_cache()
+            # Final cleanup
+            cleanup_memory()
             
             return decoded_video, decoded_audio
 
@@ -364,9 +371,11 @@ async def process_generation_task(task: TaskState) -> None:
         # Offload the blocking torch ops to run in a thread
         loop = asyncio.get_running_loop()
         def _run_pipeline():
-            tiling_config = TilingConfig.default()
-            video_chunks_number = get_video_chunks_number(num_frames, tiling_config)
-            video, audio = _pipeline(
+            # Thread-local no_grad is necessary here because this runs in a separate thread
+            with torch.no_grad():
+                tiling_config = TilingConfig.default()
+                video_chunks_number = get_video_chunks_number(num_frames, tiling_config)
+                video, audio = _pipeline(
                 prompt=request.prompt,
                 seed=seed,
                 height=height,
@@ -378,7 +387,7 @@ async def process_generation_task(task: TaskState) -> None:
                 enhance_prompt=request.enhance_prompt,
                 cancel_callback=lambda: task.is_cancelled,
             )
-            return video, audio, video_chunks_number
+                return video, audio, video_chunks_number
         
         try:
             video, audio, video_chunks_number = await loop.run_in_executor(None, _run_pipeline)
@@ -397,13 +406,19 @@ async def process_generation_task(task: TaskState) -> None:
     def _run_encoding():
         if task.is_cancelled:
             raise InterruptedError("Task was canceled before encoding completed.")
-        encode_video(
-            video=video,
-            fps=int(request.frame_rate),
-            audio=audio,
-            output_path=output_path,
-            video_chunks_number=video_chunks_number,
-        )
+        
+        # Thread-local no_grad is CRITICAL here because VAE decoding happens 
+        # lazily when the video iterator is consumed by encode_video.
+        with torch.no_grad():
+            from ltx_pipelines.utils.helpers import cleanup_memory
+            cleanup_memory()
+            encode_video(
+                video=video,
+                fps=int(request.frame_rate),
+                audio=audio,
+                output_path=output_path,
+                video_chunks_number=video_chunks_number,
+            )
             
     try:
         await loop.run_in_executor(None, _run_encoding)
