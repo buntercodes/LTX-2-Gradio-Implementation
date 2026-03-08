@@ -105,8 +105,9 @@ class BlackwellDistilledPipeline(DistilledPipeline):
         if self._vocoder is None:
             self._vocoder = self.model_ledger.vocoder()
 
-        # Added inference mode to prevent gradient tracking (Major VRAM saver)
-        with torch.inference_mode():
+        # Use no_grad to prevent gradient tracking (VRAM saver)
+        # We use no_grad instead of inference_mode to avoid compatibility issues with VAE decoding
+        with torch.no_grad():
             # Clear cache before generation to reduce fragmentation
             torch.cuda.empty_cache()
 
