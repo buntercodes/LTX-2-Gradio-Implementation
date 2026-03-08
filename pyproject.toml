@@ -1,3 +1,19 @@
+[project]
+name = "ltx2-gradio-implementation"
+version = "0.1.0"
+description = "FastAPI server and Gradio UI for LTX-2.3"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "pydantic>=2.7.0",
+    "ltx-core",
+    "ltx-pipelines",
+    "huggingface-hub>=0.23.0",
+    "python-multipart",
+]
+
 [tool.uv.sources]
 ltx-core = { workspace = true }
 ltx-pipelines = { workspace = true }
