@@ -1,7 +1,7 @@
 """
-LTX-2 Distilled — Professional Gradio Interface
+LTX-2.3 Distilled — Professional Gradio Interface
 =================================================
-A polished, production-ready Gradio web application for the LTX-2 Distilled
+A polished, production-ready Gradio web application for the LTX-2.3 Distilled
 text/image-to-video pipeline.  Generates audio-video content in two distilled
 stages (8+4 denoising steps) for fast, high-quality results.
 
@@ -50,7 +50,7 @@ from ltx_core.components.protocols import DiffusionStepProtocol
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
 
-OUTPUT_DIR = Path(tempfile.gettempdir()) / "ltx2_outputs"
+OUTPUT_DIR = Path(tempfile.gettempdir()) / "ltx2.3_outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------------------------
@@ -387,7 +387,7 @@ def generate_video(
 
         progress(0.85, desc="Encoding Video…")
 
-        output_path = str(OUTPUT_DIR / f"ltx2_{uuid.uuid4().hex[:8]}.mp4")
+        output_path = str(OUTPUT_DIR / f"ltx2.3_{uuid.uuid4().hex[:8]}.mp4")
         
         from ltx_pipelines.utils.media_io import encode_video
         encode_video(
@@ -606,7 +606,7 @@ CSS = """
 
 HEADER_HTML = """
 <div id="app-header">
-    <h1>⚡ LTX-2 Video Studio</h1>
+    <h1>⚡ LTX-2.3 Video Studio</h1>
     <p>Distilled Pipeline · Fast Audio-Video Generation</p>
     <div class="badge-row">
         <span class="badge badge-purple">🧠 Distilled Model</span>
@@ -630,7 +630,7 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
 
     with gr.Blocks(
         css=CSS,
-        title="LTX-2 Video Studio",
+        title="LTX-2.3 Video Studio",
         theme=theme,
     ) as app:
         gr.HTML(HEADER_HTML)
@@ -697,10 +697,10 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
                                 num_frames = gr.Slider(
                                     label="Frame Count",
                                     minimum=9,
-                                    maximum=257,
+                                    maximum=721,
                                     step=8,
                                     value=121,
-                                    info="8k+1 format (121 = 5s @ 24fps)",
+                                    info="8k+1 format (721 = 30s @ 24fps)",
                                 )
                                 frame_rate = gr.Slider(
                                     label="Frame Rate (fps)",
@@ -795,12 +795,12 @@ def build_ui(args: argparse.Namespace) -> gr.Blocks:
                             settings_checkpoint = gr.Textbox(
                                 label="Distilled Checkpoint (.safetensors)",
                                 value=args.distilled_checkpoint_path or "",
-                                placeholder="/path/to/ltx-video-2b-v0.9.5-distilled.safetensors",
+                                placeholder="/path/to/ltx-2.3-22b-distilled.safetensors",
                             )
                             settings_upsampler = gr.Textbox(
                                 label="Spatial Upsampler (.safetensors)",
                                 value=args.spatial_upsampler_path or "",
-                                placeholder="/path/to/spatial_upsampler.safetensors",
+                                placeholder="/path/to/ltx-2.3-spatial-upscaler-x2-1.0.safetensors",
                             )
                             settings_gemma = gr.Textbox(
                                 label="Gemma Root Directory",
