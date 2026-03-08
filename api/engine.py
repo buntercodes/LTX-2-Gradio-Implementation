@@ -102,96 +102,108 @@ class BlackwellDistilledPipeline(DistilledPipeline):
         stepper = EulerDiffusionStep()
         dtype = torch.bfloat16
 
-        (ctx_p,) = encode_prompts(
-            [prompt],
-            self.model_ledger,
-            enhance_first_prompt=enhance_prompt,
-            enhance_prompt_image=images[0].path if len(images) > 0 else None,
-        )
-        video_context, audio_context = ctx_p.video_encoding, ctx_p.audio_encoding
-
-        # Cache models in the pipeline instance
-        if self._video_encoder is None:
-            self._video_encoder = self.model_ledger.video_encoder()
-        if self._transformer is None:
-            self._transformer = self.model_ledger.transformer()
-            
-        video_encoder = self._video_encoder
-        transformer = self._transformer
-        
-        stage_1_sigmas = torch.Tensor(DISTILLED_SIGMA_VALUES).to(self.device)
-
-        base_denoise_fn = simple_denoising_func(
-            video_context=video_context,
-            audio_context=audio_context,
-            transformer=transformer,
-        )
-
-        def custom_denoise_fn(*args, **kwargs):
-            if cancel_callback and cancel_callback():
-                raise InterruptedError("Task was canceled by the user.")
-            return base_denoise_fn(*args, **kwargs)
-
-        def denoising_loop(
-            sigmas: torch.Tensor, video_state: LatentState, audio_state: LatentState, stepper: DiffusionStepProtocol
-        ) -> tuple[LatentState, LatentState]:
-            return euler_denoising_loop(
-                sigmas=sigmas,
-                video_state=video_state,
-                audio_state=audio_state,
-                stepper=stepper,
-                denoise_fn=custom_denoise_fn,
-            )
-
-        stage_1_output_shape = VideoPixelShape(
-            batch=1, frames=num_frames, width=width // 2, height=height // 2, fps=frame_rate,
-        )
-        stage_1_conditionings = combined_image_conditionings(
-            images=images, height=stage_1_output_shape.height, width=stage_1_output_shape.width,
-            video_encoder=video_encoder, dtype=dtype, device=self.device,
-        )
-
-        video_state, audio_state = denoise_audio_video(
-            output_shape=stage_1_output_shape, conditionings=stage_1_conditionings,
-            noiser=noiser, sigmas=stage_1_sigmas, stepper=stepper, denoising_loop_fn=denoising_loop,
-            components=self.pipeline_components, dtype=dtype, device=self.device,
-        )
-
-        if self._upsampler is None:
-            self._upsampler = self.model_ledger.spatial_upsampler()
-            
-        upscaled_video_latent = upsample_video(
-            latent=video_state.latent[:1], video_encoder=video_encoder, upsampler=self._upsampler
-        )
-
-        stage_2_sigmas = torch.Tensor(STAGE_2_DISTILLED_SIGMA_VALUES).to(self.device)
-        stage_2_output_shape = VideoPixelShape(batch=1, frames=num_frames, width=width, height=height, fps=frame_rate)
-        stage_2_conditionings = combined_image_conditionings(
-            images=images, height=stage_2_output_shape.height, width=stage_2_output_shape.width,
-            video_encoder=video_encoder, dtype=dtype, device=self.device,
-        )
-        video_state, audio_state = denoise_audio_video(
-            output_shape=stage_2_output_shape, conditionings=stage_2_conditionings,
-            noiser=noiser, sigmas=stage_2_sigmas, stepper=stepper, denoising_loop_fn=denoising_loop,
-            components=self.pipeline_components, dtype=dtype, device=self.device,
-            noise_scale=stage_2_sigmas[0], initial_video_latent=upscaled_video_latent,
-            initial_audio_latent=audio_state.latent,
-        )
-
-        if self._vae_decoder is None:
-            self._vae_decoder = self.model_ledger.video_decoder()
-        if self._audio_decoder is None:
-            self._audio_decoder = self.model_ledger.audio_decoder()
         if self._vocoder is None:
             self._vocoder = self.model_ledger.vocoder()
 
-        decoded_video = vae_decode_video(
-            video_state.latent, self._vae_decoder, tiling_config, generator
-        )
-        decoded_audio = vae_decode_audio(
-            audio_state.latent, self._audio_decoder, self._vocoder
-        )
-        return decoded_video, decoded_audio
+        # Added inference mode to prevent gradient tracking (Major VRAM saver)
+        with torch.inference_mode():
+            # Clear cache before generation to reduce fragmentation
+            torch.cuda.empty_cache()
+
+            (ctx_p,) = encode_prompts(
+                [prompt],
+                self.model_ledger,
+                enhance_first_prompt=enhance_prompt,
+                enhance_prompt_image=images[0].path if len(images) > 0 else None,
+            )
+            video_context, audio_context = ctx_p.video_encoding, ctx_p.audio_encoding
+
+            # Cache models in the pipeline instance
+            if self._video_encoder is None:
+                self._video_encoder = self.model_ledger.video_encoder()
+            if self._transformer is None:
+                self._transformer = self.model_ledger.transformer()
+                
+            video_encoder = self._video_encoder
+            transformer = self._transformer
+            
+            stage_1_sigmas = torch.Tensor(DISTILLED_SIGMA_VALUES).to(self.device)
+
+            base_denoise_fn = simple_denoising_func(
+                video_context=video_context,
+                audio_context=audio_context,
+                transformer=transformer,
+            )
+
+            def custom_denoise_fn(*args, **kwargs):
+                if cancel_callback and cancel_callback():
+                    raise InterruptedError("Task was canceled by the user.")
+                return base_denoise_fn(*args, **kwargs)
+
+            def denoising_loop(
+                sigmas: torch.Tensor, video_state: LatentState, audio_state: LatentState, stepper: DiffusionStepProtocol
+            ) -> tuple[LatentState, LatentState]:
+                return euler_denoising_loop(
+                    sigmas=sigmas,
+                    video_state=video_state,
+                    audio_state=audio_state,
+                    stepper=stepper,
+                    denoise_fn=custom_denoise_fn,
+                )
+
+            stage_1_output_shape = VideoPixelShape(
+                batch=1, frames=num_frames, width=width // 2, height=height // 2, fps=frame_rate,
+            )
+            stage_1_conditionings = combined_image_conditionings(
+                images=images, height=stage_1_output_shape.height, width=stage_1_output_shape.width,
+                video_encoder=video_encoder, dtype=dtype, device=self.device,
+            )
+
+            video_state, audio_state = denoise_audio_video(
+                output_shape=stage_1_output_shape, conditionings=stage_1_conditionings,
+                noiser=noiser, sigmas=stage_1_sigmas, stepper=stepper, denoising_loop_fn=denoising_loop,
+                components=self.pipeline_components, dtype=dtype, device=self.device,
+            )
+
+            if self._upsampler is None:
+                self._upsampler = self.model_ledger.spatial_upsampler()
+                
+            upscaled_video_latent = upsample_video(
+                latent=video_state.latent[:1], video_encoder=video_encoder, upsampler=self._upsampler
+            )
+
+            stage_2_sigmas = torch.Tensor(STAGE_2_DISTILLED_SIGMA_VALUES).to(self.device)
+            stage_2_output_shape = VideoPixelShape(batch=1, frames=num_frames, width=width, height=height, fps=frame_rate)
+            stage_2_conditionings = combined_image_conditionings(
+                images=images, height=stage_2_output_shape.height, width=stage_2_output_shape.width,
+                video_encoder=video_encoder, dtype=dtype, device=self.device,
+            )
+            video_state, audio_state = denoise_audio_video(
+                output_shape=stage_2_output_shape, conditionings=stage_2_conditionings,
+                noiser=noiser, sigmas=stage_2_sigmas, stepper=stepper, denoising_loop_fn=denoising_loop,
+                components=self.pipeline_components, dtype=dtype, device=self.device,
+                noise_scale=stage_2_sigmas[0], initial_video_latent=upscaled_video_latent,
+                initial_audio_latent=audio_state.latent,
+            )
+
+            if self._vae_decoder is None:
+                self._vae_decoder = self.model_ledger.video_decoder()
+            if self._audio_decoder is None:
+                self._audio_decoder = self.model_ledger.audio_decoder()
+            if self._vocoder is None:
+                self._vocoder = self.model_ledger.vocoder()
+
+            decoded_video = vae_decode_video(
+                video_state.latent, self._vae_decoder, tiling_config, generator
+            )
+            decoded_audio = vae_decode_audio(
+                audio_state.latent, self._audio_decoder, self._vocoder
+            )
+            
+            # Cleanup cache after generation
+            torch.cuda.empty_cache()
+            
+            return decoded_video, decoded_audio
 
 
 _pipeline: Optional[BlackwellDistilledPipeline] = None

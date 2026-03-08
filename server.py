@@ -1,5 +1,9 @@
+import os
 import logging
 from contextlib import asynccontextmanager
+
+# Enforce CUDA memory config to avoid fragmentation on Blackwell
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
