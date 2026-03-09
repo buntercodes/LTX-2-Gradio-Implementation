@@ -332,6 +332,25 @@ async def process_generation_task(task: TaskState) -> None:
         raise ValueError(f"Frame count must satisfy 8k+1. Try {snapped} instead of {num_frames}.")
 
     images: list[ImageConditioningInput] = []
+    
+    if request.image_base64:
+        import base64
+        try:
+            head_and_data = request.image_base64.split(",", 1)
+            data_str = head_and_data[1] if len(head_and_data) > 1 else head_and_data[0]
+            img_data = base64.b64decode(data_str)
+            
+            upload_dir = OUTPUT_DIR / "uploads"
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            saved_path = upload_dir / f"{task.task_id}.png"
+            
+            with open(saved_path, 'wb') as f:
+                f.write(img_data)
+            request.image_path = str(saved_path)
+        except Exception as e:
+            logger.error(f"Failed to decode and save base64 image: {e}")
+            raise ValueError("Invalid Base64 image data")
+
     if request.image_path and Path(request.image_path).is_file():
         images.append(
             ImageConditioningInput(

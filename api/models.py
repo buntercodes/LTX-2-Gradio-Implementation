@@ -26,6 +26,7 @@ class VideoGenerationRequest(BaseModel):
     )
     frame_rate: float = Field(default=24.0, ge=8.0, le=30.0, description="Frame rate in fps")
     image_path: Optional[str] = Field(None, description="Path to conditioning image")
+    image_base64: Optional[str] = Field(None, description="Base64 encoded string of the conditioning image data (e.g., 'data:image/png;base64,...')")
     image_strength: float = Field(default=1.0, ge=0.0, le=1.0, description="Image conditioning strength")
     image_crf: int = Field(default=33, ge=0, le=51, description="Image CRF (Compression)")
     enhance_prompt: bool = Field(default=False, description="Enhance prompt with AI text encoder")
